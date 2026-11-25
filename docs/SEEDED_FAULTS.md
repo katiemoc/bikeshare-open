@@ -130,3 +130,44 @@ FAILED tests/test_leakage.py::test_rolling_mean_excludes_today - assert np.fl...
 ```
 
 Turns to fix: 1. Put `.shift(1)` back on `cnt_roll_7`.
+
+### Fault 3: weather encoder's `raise` removed
+
+Deleted the unknown-label check and left the map untouched:
+
+```python
+return series.map(WEATHER_ORDER).astype(float)
+```
+
+`GOOD`, `MISTY`, and `BAD` are all in `WEATHER_ORDER`, so no new NaNs appear. The suite stayed green and the hook wrote nothing.
+
+```
+...............                                                          [100%]
+15 passed in 0.71s
+```
+
+Hook exit code: 0. Stderr was empty.
+
+That seed does not make a test red. The silent deletion in the lesson also drops `BAD` out of the map, which is what lets `dropna` remove those days. Replaced the same block with:
+
+```python
+order = {"GOOD": 0, "MISTY": 1}
+return series.map(order).astype(float)
+```
+
+`test_only_expected_rows_are_dropped` then failed. 34 lost rows is the usual 14 plus the 20 `BAD` days.
+
+```
+.F.............                                                          [100%]
+=================================== FAILURES ===================================
+E   AssertionError: lost 34 rows; expected at most 14
+    assert 34 <= 14
+/Users/wwidjaja0/Downloads/bikeshare-open/tests/test_contract.py:43: AssertionError: lost 34 rows; expected at most 14
+=========================== short test summary info ============================
+FAILED tests/test_contract.py::test_only_expected_rows_are_dropped - Assertio...
+1 failed, 14 passed in 0.71s
+```
+
+Hook exit code: 0. Stderr was empty. `test_only_expected_rows_are_dropped` lives in `tests/test_contract.py`, and `check_leakage.sh` runs `tests/test_leakage.py` only.
+
+Turns to fix: 1. Restored the `WEATHER_ORDER` map and the `raise`. The hook did not ask for that edit; the contract-test output did.
