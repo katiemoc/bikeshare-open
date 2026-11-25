@@ -171,3 +171,86 @@ FAILED tests/test_contract.py::test_only_expected_rows_are_dropped - Assertio...
 Hook exit code: 0. Stderr was empty. `test_only_expected_rows_are_dropped` lives in `tests/test_contract.py`, and `check_leakage.sh` runs `tests/test_leakage.py` only.
 
 Turns to fix: 1. Restored the `WEATHER_ORDER` map and the `raise`. The hook did not ask for that edit; the contract-test output did.
+
+### Fault 4: `cp` into `data/raw/` from Bash
+
+The PostToolUse matcher is `Edit|Write`. A shell copy never starts `check_leakage.sh`. Feeding the hook a Bash payload also exits 0, because the script only continues when `tool_input.file_path` matches `src/*.py`.
+
+A mutated copy was written over the raw csv. `cp` succeeded. The hook did not run the tests.
+
+```
+cp /tmp/bikeshare-faults/mut.csv data/raw/bike_daily.csv
+CP_EXIT:0
+799a5fc8f1007f21182bff55bc065ee8130cadb27eb7a755ccc44b7eb933d5c1  data/raw/bike_daily.csv
+```
+
+```
+echo '{"tool_name":"Bash","tool_input":{"command":"cp /tmp/bikeshare-faults/mut.csv data/raw/bike_daily.csv"}}' | .claude/hooks/check_leakage.sh
+HOOK_EXIT:0
+```
+
+Stdout and stderr were both empty.
+
+What catches it:
+
+- A PreToolUse hook whose matcher is `Bash`, rejecting any command that writes under `data/raw/`.
+- `chmod -w data/raw`, so `cp` fails in the filesystem. Permission rules in `settings.json` only bind the Edit and Write tools.
+- A hash check in `make data`. Implemented below. A Stop hook that runs `make test` catches this only when the new bytes fail a test. A still-valid csv with one changed count can leave the tests green. The hash check fails on any byte change.
+
+`src/config.py` and `src/ingest.py`:
+
+```diff
+diff --git a/src/config.py b/src/config.py
+index 405de6f..2b2c2c9 100644
+--- a/src/config.py
++++ b/src/config.py
+@@ -3,6 +3,10 @@ from pathlib import Path
+
+ ROOT = Path(__file__).resolve().parents[1]
+ RAW = ROOT / "data" / "raw" / "bike_daily.csv"
++# Full sha256 of the checked-in mirror (prefix a6bed1577f6e4de5). load_raw()
++# refuses a Bash overwrite of this file. The Edit deny rules and the
++# PostToolUse hook do not see that write.
++RAW_SHA256 = "a6bed1577f6e4de56dcfae6d8315985073cc0ad3446c8c99ed60c86a0b5ad9dc"
+ PROCESSED = ROOT / "data" / "processed" / "features.parquet"
+ METRICS = ROOT / "reports" / "metrics.json"
+
+diff --git a/src/ingest.py b/src/ingest.py
+index 6654075..79dd7d1 100644
+--- a/src/ingest.py
++++ b/src/ingest.py
+@@ -2,12 +2,13 @@
+ 
+ Run: python -m src.ingest
+ """
++import hashlib
+ import sys
+ import urllib.request
+ 
+ import pandas as pd
+ 
+-from src.config import DATA_URL, RAW
++from src.config import DATA_URL, RAW, RAW_SHA256
+ 
+ EXPECTED_MIN_ROWS = 700
+ REQUIRED_COLS = {"dteday", "cnt", "casual", "registered", "temp", "hum", "windspeed"}
+@@ -21,6 +22,12 @@ def download(force: bool = False) -> None:
+ 
+ 
+ def load_raw() -> pd.DataFrame:
++    digest = hashlib.sha256(RAW.read_bytes()).hexdigest()
++    if digest != RAW_SHA256:
++        raise ValueError(
++            f"raw file sha256 is {digest}, expected {RAW_SHA256}. "
++            "data/raw is immutable; change features downstream."
++        )
+     df = pd.read_csv(RAW, parse_dates=["dteday"])
+```
+
+On the tampered file, `load_raw()` raised:
+
+```
+ValueError: raw file sha256 is 799a5fc8f1007f21182bff55bc065ee8130cadb27eb7a755ccc44b7eb933d5c1, expected a6bed1577f6e4de56dcfae6d8315985073cc0ad3446c8c99ed60c86a0b5ad9dc. data/raw is immutable; change features downstream.
+```
+
+The original file was copied back. `shasum` matched `RAW_SHA256`, `load_raw()` returned 728 rows, and `make test` reported `15 passed`.
