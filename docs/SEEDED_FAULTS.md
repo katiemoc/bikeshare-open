@@ -23,3 +23,60 @@ make: *** [test] Error 1
 ```
 
 The feature was then implemented as `out[TARGET].shift(1).rolling(3).mean()` after `reindex_to_calendar`. `make test` then reported `15 passed`.
+
+## Exercise 2
+
+Each seed was applied to `src/features.py`, then reverted. The hook is the starter script, run with the PostToolUse JSON on stdin (`CLAUDE_PROJECT_DIR` set to the repo). It reruns only `tests/test_leakage.py`. Full-suite output is from `python -m pytest tests/ -q --tb=line`. After all four faults, `data/raw/bike_daily.csv` was back to sha256 `a6bed1577f6e4de56dcfae6d8315985073cc0ad3446c8c99ed60c86a0b5ad9dc` and `make test` reported `15 passed`.
+
+The repair for each source fault was one edit that put the original lines back after the failure text was on screen. That is the turn count below.
+
+### Fault 1: forbidden column added to `feature_columns`
+
+`return [c for c in numeric if c not in FORBIDDEN]` was replaced with:
+
+```python
+cols = [c for c in numeric if c not in FORBIDDEN]
+cols.append("casual")
+return cols
+```
+
+`casual` is in `LEAKAGE_COLS`. One test failed.
+
+```
+.....F.........                                                          [100%]
+=================================== FAILURES ===================================
+E   AssertionError: forbidden columns in feature set: {'casual'}
+    assert not ({'atemp', 'casual', 'cnt_lag_1', 'cnt_lag_7', 'cnt_roll_3', 'cnt_roll_7', ...} & {'casual', 'cnt', 'cnt_2d_bfr', 'days_since_2011', 'instant', 'registered', ...})
+/Users/wwidjaja0/Downloads/bikeshare-open/tests/test_leakage.py:31: AssertionError: forbidden columns in feature set: {'casual'}
+=========================== short test summary info ============================
+FAILED tests/test_leakage.py::test_no_forbidden_features - AssertionError: fo...
+1 failed, 14 passed in 0.72s
+```
+
+Hook stderr (exit 2). The hook's own pytest run is `tests/test_leakage.py` only, so the count is 7 passed rather than 14:
+
+```
+Leakage tests failed after editing /Users/wwidjaja0/Downloads/bikeshare-open/src/features.py:
+feats =         dteday  instant  season  ...  cnt_lag_7   cnt_roll_3   cnt_roll_7
+0   2011-01-10     10.0  WINTER  ...     134....333333  1530.142857
+713 2012-12-31    731.0  WINTER  ...      920.0  2077.333333  1531.428571
+
+[714 rows x 29 columns]
+
+    def test_no_forbidden_features(feats):
+        """Guards the gate, not the data: feature_columns() excludes FORBIDDEN by
+        construction, so this cannot discover a *new* leaky column. What it
+        catches is someone editing feature_columns() or FORBIDDEN -- which is
+        exactly the fault the Step 7 hook demonstrates."""
+        cols = set(feature_columns(feats))
+>       assert not (cols & FORBIDDEN), f"forbidden columns in feature set: {cols & FORBIDDEN}"
+E       AssertionError: forbidden columns in feature set: {'casual'}
+E       assert not ({'atemp', 'casual', 'cnt_lag_1', 'cnt_lag_7', 'cnt_roll_3', 'cnt_roll_7', ...} & {'casual', 'cnt', 'cnt_2d_bfr', 'days_since_2011', 'instant', 'registered', ...})
+
+tests/test_leakage.py:31: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_leakage.py::test_no_forbidden_features - AssertionError: fo...
+1 failed, 7 passed in 0.23s
+```
+
+Turns to fix: 1. Deleted `cols.append("casual")` and restored the original `return`.
