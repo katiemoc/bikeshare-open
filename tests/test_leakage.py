@@ -57,6 +57,23 @@ def test_rolling_mean_excludes_today(feats):
         assert feats.set_index("dteday").cnt_roll_7[date] == pytest.approx(expected)
 
 
+def test_cnt_roll_3_on_named_date(feats):
+    """cnt_roll_3 on 2011-07-04 is the mean of the three prior calendar days.
+
+    Hand check, from counts strictly before that date:
+    2011-07-03 = 4649, 2011-07-02 = 5119, 2011-07-01 = 5362,
+    so (4649 + 5119 + 5362) / 3 = 5043.333...
+    That day's own count, 6043, is not an input.
+    """
+    by_date = feats.set_index("dteday")
+    date = pd.Timestamp("2011-07-04")
+    prior = [date - pd.Timedelta(days=k) for k in (1, 2, 3)]
+    expected = sum(float(by_date.loc[d, TARGET]) for d in prior) / 3
+    assert expected == pytest.approx((4649 + 5119 + 5362) / 3)
+    assert float(by_date.loc[date, TARGET]) == 6043
+    assert by_date.loc[date, "cnt_roll_3"] == pytest.approx(expected)
+
+
 def test_no_missing_values(feats):
     assert feats[feature_columns(feats)].isna().sum().sum() == 0
 
