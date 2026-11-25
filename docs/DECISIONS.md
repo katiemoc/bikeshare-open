@@ -8,3 +8,5 @@ Agents append here via the `/new-feature` skill; you append here by hand.
 - Exclude `instant`, `yr`, `days_since_2011`: time indexes let a tree predict a flat constant past 2011 and a linear model extrapolate a trend we have no grounds for.
 - Split 2011 / H1 2012 / H2 2012 by date. Test set touched once, after all feature work.
 - Report mean and persistence baselines with every score. Persistence (test R^2 0.510, MAE 840) is within 0.07 R^2 of ridge and beats it on MAE; that caveat goes in the report.
+- 2026-11-25: Added `cnt_roll_3`, the mean of `cnt` on the three calendar days before the forecast date (known at prediction time; built after `reindex_to_calendar` with `.shift(1)` before `.rolling(3)`). Validation R² ridge 0.6475 → 0.6439 (Δ −0.0036), hgb 0.2185 → 0.1983 (Δ −0.0202). Both changes are under 0.01 and negative, so I recommend dropping the feature. It stays in this pipeline so the exercise test and the before/after table match `reports/metrics.json`.
+- 2026-11-25: Left `CLAUDE.md` unchanged. `cnt_roll_3` is a shifted rolling mean of past `cnt`, which the existing lag rule already requires.
