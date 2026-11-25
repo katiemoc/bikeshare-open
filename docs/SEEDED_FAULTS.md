@@ -80,3 +80,53 @@ FAILED tests/test_leakage.py::test_no_forbidden_features - AssertionError: fo...
 ```
 
 Turns to fix: 1. Deleted `cols.append("casual")` and restored the original `return`.
+
+### Fault 2: `.shift(1)` deleted from `cnt_roll_7`
+
+```python
+out["cnt_roll_7"] = out[TARGET].rolling(LAG_WARMUP).mean()
+```
+
+The rolling window then includes the current day. `cnt_roll_3` was left shifted.
+
+```
+........F......                                                          [100%]
+=================================== FAILURES ===================================
+E   assert np.float64(4389.0) == 4414.857142857143 ± 0.00441486
+
+      comparison failed
+      Obtained: 4389.0
+      Expected: 4414.857142857143 ± 0.00441486
+/Users/wwidjaja0/Downloads/bikeshare-open/tests/test_leakage.py:57: assert np.float64(4389.0) == 4414.857142857143 ± 0.00441486
+=========================== short test summary info ============================
+FAILED tests/test_leakage.py::test_rolling_mean_excludes_today - assert np.fl...
+1 failed, 14 passed in 0.72s
+```
+
+Hook stderr (exit 2):
+
+```
+Leakage tests failed after editing /Users/wwidjaja0/Downloads/bikeshare-open/src/features.py:
+[714 rows x 29 columns]
+
+    def test_rolling_mean_excludes_today(feats):
+        """cnt_roll_7 must be the mean of the 7 calendar days *before* today."""
+        by_date = feats.set_index("dteday")[TARGET]
+        date = feats.dteday.iloc[200]
+        window = [date - pd.Timedelta(days=k) for k in range(1, 8)]
+        if all(d in by_date.index for d in window):
+            expected = sum(by_date[d] for d in window) / 7
+>           assert feats.set_index("dteday").cnt_roll_7[date] == pytest.approx(expected)
+E           assert np.float64(4389.0) == 4414.857142857143 ± 0.00441486
+E
+E             comparison failed
+E             Obtained: 4389.0
+E             Expected: 4414.857142857143 ± 0.00441486
+
+tests/test_leakage.py:57: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_leakage.py::test_rolling_mean_excludes_today - assert np.fl...
+1 failed, 7 passed in 0.23s
+```
+
+Turns to fix: 1. Put `.shift(1)` back on `cnt_roll_7`.
