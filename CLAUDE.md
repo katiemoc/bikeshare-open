@@ -9,6 +9,8 @@ rides) from calendar, weather, and lagged-demand features.
 - `make train` - fit models, write `reports/metrics.json`
 - `make test` - pytest; run this before claiming anything works
 - `make all` - the three pipeline stages in order
+- `/new-feature <spec>` - add a feature with its leakage test
+- `/ablation <feature>` - evaluate validation delta from dropping a feature
 
 ## Non-negotiable rules
 - **Never** put `casual` or `registered` in a feature set:
