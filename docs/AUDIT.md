@@ -1,12 +1,10 @@
 # Audit
 
-## Teammate
+## Teammate Audit
 
-Repository: https://github.com/roynguyenn/bikeshare-open
+For Exercise 3, I audited Roy Nguyen's repository at https://github.com/roynguyenn/bikeshare-open using the `/leakage-auditor` subagent driven by `bikeshare-coder`. I reviewed their implementation across `src/config.py`, `src/features.py`, `src/train.py`, and the test suite. The auditor returned no methodology violations. Here is the verbatim output from the run:
 
-`/leakage-auditor` was run from a clone of that repo, with `bikeshare-coder`, against `src/config.py`, `src/features.py`, `src/train.py`, and `tests/`. It reported no finding. Verbatim:
-
-```
+```text
 Based on my careful reading of all files in this repository, here is my audit against the five checks:
 
 ## Summary: All Five Checks Pass
@@ -24,24 +22,20 @@ Based on my careful reading of all files in this repository, here is my audit ag
 The code adheres to all requirements in CLAUDE.md: no leakage, temporal splits only, calendar-gap-aware lags, row-loss assertions, and both baselines reported alongside each model.
 ```
 
-### Verdict
+I agree with the auditor's verdict that none of the code changes any metrics through invalid methodology. Their pipeline excludes `casual`, `registered`, and `cnt` from model features, preventing the identity leak. Their engineered features (`cnt_roll_7` and `cnt_roll_28`) properly apply `.shift(1)` after reindexing to a full daily calendar, while `cnt_lag_7` uses `.shift(7)`. The data split is strictly chronological, separating train (2011), validation (first half of 2012), and test (second half of 2012), and the feature scaler is fitted exclusively on the training partition. Their reported metrics file includes both the historical mean and persistence baselines. While their 28-day lag warmup reduces the training set to 306 rows and shifts the training mean, this is an expected mathematical consequence of the window length rather than a data leak or silent row drop.
 
-I agree: nothing here changes a score by leakage, a random split, a same-day window, a silent row drop, or a missing baseline. `casual`, `registered`, and `cnt` stay out of `feature_columns`. `cnt_roll_7` and `cnt_roll_28` are `.shift(1).rolling(...)` after `reindex_to_calendar`, and `cnt_lag_7` is `.shift(7)`. `temporal_split` cuts on `2011-12-31` and `2012-06-30`. The scaler sits inside the pipeline and is fit on the training rows only. `reports/metrics.json` is the untransformed run and includes both baselines. The 28-day warmup changes the training mean (306 training rows, test mean-baseline R² −1.7717), and that number is the feature's warmup, not a leak.
+## Repository Batch Audit
 
-## Own repo
+To audit my own repository, I executed the Agent SDK script against the finished project:
 
-Command, from the repo root, against the local `bikeshare-coder` model:
-
-```
+```bash
 python agent/audit.py . --out reports/audit.jsonl --concurrency 1
 ```
 
-`reports/audit.jsonl` is one line. The script printed `audited 1 repos; 0 flagged`.
+The run completed with zero flagged issues, generating the following record in `reports/audit.jsonl`:
 
 ```json
 {"repo": "bikeshare-open", "leakage": "none", "temporal_ok": true, "baseline_reported": true, "reproducible": true, "findings": [{"file": "N/A", "issue": "No leakage detected", "line": 0, "why_it_matters": "Model does not have access to target or its components"}, {"file": "N/A", "issue": "Temporal validity maintained", "line": 0, "why_it_matters": "Data splits respect time ordering, preventing future data leakage"}, {"file": "N/A", "issue": "Baselines reported", "line": 0, "why_it_matters": "Mean and persistence baselines provide context for model performance"}, {"file": "N/A", "issue": "Pipeline is reproducible", "line": 0, "why_it_matters": "Documented commands and pinned dependencies ensure consistent results"}], "confidence": "high"}
 ```
 
-## Verdict
-
-None of these findings change a number. `leakage` is `none`, and the three booleans are true, which matches the pipeline: forbidden columns stay out of `feature_columns`, lags are shifted on a calendar index, the split is by date, and `reports/metrics.json` includes the mean and persistence baselines. The four `findings` entries are those same checks restated, each with file `N/A` and line 0, so they do not name a defect. I agree with the pass, and there is nothing in this run to fix.
+I reviewed the generated audit results and confirmed that none of the findings alter any reported numbers. The auditor classified leakage as none and marked temporal ordering, baseline reporting, and reproducibility as true with high confidence. The four items in the findings array simply restate the core verification checks rather than naming specific code faults or file locations. This matches the actual state of the repository, where forbidden columns are barred from feature sets, lags are strictly shifted on a complete calendar, and both baselines are tracked alongside model scores in `reports/metrics.json`.
